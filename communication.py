@@ -11,6 +11,9 @@ GAME_OVER = "game_over"
 SPECTATE_GAME = "spectate_game"
 TIME_UPDATE = "time_update"
 ERROR = "error"
+LIST_GAMES = "list_games"
+GAMES_LIST = "games_list"
+SPECTATOR_JOINED = "spectator_joined"
 
 def create_message(msg_type, data):
     """Create a message packet that can be sent over the socket"""

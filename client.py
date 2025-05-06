@@ -259,14 +259,9 @@ class ChessClient:
             if not self.connected:
                 return
         
-        game_id = simpledialog.askstring("Spectate Game", "Enter game ID to spectate:")
-        if not game_id:
-            return
-            
-        self.send_message(SPECTATE_GAME, {"game_id": game_id})
-        self.status = "spectating"
-        self.status_label.config(text="Status: Spectating")
-        self.show_game_screen()
+        # First, request the list of active games from the server
+        self.send_message(LIST_GAMES, {})
+        # Result will be handled in process_message
     
     def receive_messages(self):
         """Receive and process messages from the server"""
@@ -318,11 +313,111 @@ class ChessClient:
             elif msg_type == TIME_UPDATE:
                 self.master.after(0, lambda: self.handle_time_update(data))
             
+            elif msg_type == GAMES_LIST:
+                self.master.after(0, lambda: self.show_games_list_dialog(data.get("games", [])))
+            
+            elif msg_type == SPECTATOR_JOINED:
+                # Update spectator info if needed
+                pass
+            
             elif msg_type == ERROR:
                 self.master.after(0, lambda: messagebox.showinfo("Error", data.get("message", "Unknown error")))
                 
         except Exception as e:
             print(f"Error processing message: {e}")
+            
+    def show_games_list_dialog(self, games):
+        """Show a dialog with available games to spectate"""
+        if not games:
+            messagebox.showinfo("No Games", "There are no active games to spectate at the moment.")
+            return
+            
+        # Create a dialog to display games
+        games_dialog = tk.Toplevel(self.master)
+        games_dialog.title("Select a Game to Spectate")
+        games_dialog.geometry("500x300")
+        games_dialog.transient(self.master)
+        games_dialog.grab_set()
+        
+        # Create a frame for the games list
+        games_frame = tk.Frame(games_dialog)
+        games_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Create a treeview to display the games
+        columns = ("Game ID", "White Player", "Black Player", "Status", "Spectators")
+        tree = ttk.Treeview(games_frame, columns=columns, show="headings")
+        
+        # Set column headings
+        for col in columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=100)
+        
+        # Add games to the treeview
+        for i, game in enumerate(games):
+            game_id = game["game_id"]
+            short_id = f"{game_id[:8]}..."
+            tree.insert("", "end", iid=str(i), values=(
+                short_id,
+                game["white_player"],
+                game["black_player"],
+                game["status"],
+                game["spectator_count"]
+            ), tags=(game_id,))
+        
+        # Add scrollbar
+        scrollbar = ttk.Scrollbar(games_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Create a frame for buttons
+        button_frame = tk.Frame(games_dialog)
+        button_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Create a function to handle selection
+        def on_select():
+            selected = tree.selection()
+            if selected:
+                item_id = selected[0]
+                game_id = tree.item(item_id, "tags")[0]
+                games_dialog.destroy()
+                # Join the selected game as a spectator
+                self.send_message(SPECTATE_GAME, {"game_id": game_id})
+                self.status = "spectating"
+                self.status_label.config(text="Status: Spectating")
+                self.show_game_screen()
+        
+        # Create a function to handle manual game ID entry
+        def on_manual():
+            game_id = manual_entry.get().strip()
+            if game_id:
+                games_dialog.destroy()
+                self.send_message(SPECTATE_GAME, {"game_id": game_id})
+                self.status = "spectating"
+                self.status_label.config(text="Status: Spectating")
+                self.show_game_screen()
+        
+        # Add select button
+        select_button = tk.Button(button_frame, text="Spectate Selected Game", command=on_select)
+        select_button.pack(side=tk.LEFT, padx=5)
+        
+        # Add a separator
+        tk.Label(button_frame, text="OR").pack(side=tk.LEFT, padx=10)
+        
+        # Add manual game ID entry
+        tk.Label(button_frame, text="Game ID:").pack(side=tk.LEFT)
+        manual_entry = tk.Entry(button_frame, width=20)
+        manual_entry.pack(side=tk.LEFT, padx=5)
+        
+        manual_button = tk.Button(button_frame, text="Join", command=on_manual)
+        manual_button.pack(side=tk.LEFT, padx=5)
+        
+        # Add cancel button
+        cancel_button = tk.Button(button_frame, text="Cancel", command=games_dialog.destroy)
+        cancel_button.pack(side=tk.RIGHT, padx=5)
+        
+        # Enable double-click to select
+        tree.bind("<Double-1>", lambda e: on_select())
     
     def handle_player_assigned(self, data):
         """Handle player assignment from server"""

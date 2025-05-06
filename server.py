@@ -95,6 +95,24 @@ class ChessServer:
             # Try to match players
             self.match_players()
             
+        elif msg_type == LIST_GAMES:
+            # Send list of active games to the client
+            active_games = []
+            for game_id, game in self.games.items():
+                if game.game_status == "active" or game.game_status == "waiting":
+                    white_name = self.clients[game.white_player][2] if game.white_player in self.clients else "Unknown"
+                    black_name = self.clients[game.black_player][2] if game.black_player in self.clients else "Waiting..."
+                    
+                    active_games.append({
+                        "game_id": game_id,
+                        "white_player": white_name,
+                        "black_player": black_name,
+                        "status": game.game_status,
+                        "spectator_count": len(game.spectators)
+                    })
+            
+            self.send_message(client_id, GAMES_LIST, {"games": active_games})
+            
         elif msg_type == CREATE_GAME:
             # Create a new game and add the client as the first player
             game_id = str(uuid.uuid4())
@@ -114,13 +132,32 @@ class ChessServer:
             game_id = data.get("game_id")
             if game_id in self.games:
                 game = self.games[game_id]
-                game.add_spectator(client_id)
-                self.client_game[client_id] = game_id
+                spectator_name = self.clients[client_id][2]
                 
-                # Send current game state to the spectator
-                self.send_message(client_id, GAME_STATE, game.get_game_state())
-                
-                print(f"{self.clients[client_id][2]} is now spectating game {game_id}")
+                # Add the spectator to the game
+                if game.add_spectator(client_id):
+                    self.client_game[client_id] = game_id
+                    
+                    # Send current game state to the spectator
+                    self.send_message(client_id, GAME_STATE, game.get_game_state())
+                    
+                    # Notify all players and other spectators that a new spectator joined
+                    self.broadcast_to_game(game_id, SPECTATOR_JOINED, {
+                        "spectator_name": spectator_name,
+                        "spectator_count": len(game.spectators)
+                    })
+                    
+                    # Also send a system chat message to notify everyone
+                    chat_entry = game.add_chat_message("System", f"{spectator_name} joined as a spectator")
+                    self.broadcast_to_game(game_id, CHAT_MESSAGE, chat_entry)
+                    
+                    print(f"{spectator_name} is now spectating game {game_id}")
+                else:
+                    # Already spectating this game
+                    self.send_message(client_id, ERROR, {"message": "You are already spectating this game"})
+            else:
+                # Game not found
+                self.send_message(client_id, ERROR, {"message": "Game not found. Please check the game ID."})
             
         elif msg_type == MAKE_MOVE:
             game_id = self.client_game.get(client_id)
