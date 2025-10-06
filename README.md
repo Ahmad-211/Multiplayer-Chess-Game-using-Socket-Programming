@@ -102,9 +102,3 @@ python client.py
 
 ---
 
-## 👨‍💻 Author
-
-**M. Faizan**  
-Software Engineer | Python Developer
-
----
